@@ -7,9 +7,11 @@
 """Preprocess the SQuAD dataset for training."""
 
 import sys
+
 sys.path.append('.')
 import argparse
 import os
+
 try:
     import ujson as json
 except ImportError:
@@ -60,16 +62,23 @@ def load_dataset(path):
     with open(path) as f:
         data = json.load(f)['data']
     output = {'qids': [], 'questions': [], 'answers': [],
-              'contexts': [], 'qid2cid': []}
-    for article in data:
-        for paragraph in article['paragraphs']:
-            output['contexts'].append(paragraph['context'])
-            for qa in paragraph['qas']:
-                output['qids'].append(qa['id'])
-                output['questions'].append(qa['question'])
-                output['qid2cid'].append(len(output['contexts']) - 1)
-                if 'answers' in qa:
-                    output['answers'].append(qa['answers'])
+              'contexts': [], 'qid2cid': [], 'story_id': []}
+    for paragraph in data:
+        output['contexts'].append(paragraph['story'])
+        # output['story_id'].append(paragraph['id'])
+        questions = paragraph["questions"]
+        answers = [[answer] for answer in paragraph["answers"]]
+        if "addtional_answers" in paragraph:
+            additional_answers = paragraph["additional_answers"]
+            for key in additional_answers:
+                for index, ans in enumerate(additional_answers[key]):
+                    answers[index].append(ans)
+        for question in questions:
+            output['qids'].append(paragraph['id'] + str(question["turn_id"]))
+            output['questions'].append(question["input_text"])
+            output['qid2cid'].append(len(output['contexts']) - 1)
+        for answer in answers:
+            output['answers'].append(answer)
     return output
 
 
@@ -77,8 +86,8 @@ def find_answer(offsets, begin_offset, end_offset):
     """Match token offsets with the char begin/end offsets of the answer."""
     start = [i for i, tok in enumerate(offsets) if tok[0] == begin_offset]
     end = [i for i, tok in enumerate(offsets) if tok[1] == end_offset]
-    assert(len(start) <= 1)
-    assert(len(end) <= 1)
+    assert (len(start) <= 1)
+    assert (len(end) <= 1)
     if len(start) == 1 and len(end) == 1:
         return start[0], end[0]
 
@@ -110,13 +119,30 @@ def process_dataset(data, tokenizer, workers=None):
         clemma = c_tokens[data['qid2cid'][idx]]['lemma']
         cpos = c_tokens[data['qid2cid'][idx]]['pos']
         cner = c_tokens[data['qid2cid'][idx]]['ner']
-        
+
         ans_tokens = []
         if len(data['answers']) > 0:
             for ans in data['answers'][idx]:
-                found = find_answer(offsets,
-                                    ans['answer_start'],
-                                    ans['answer_start'] + len(ans['text']))
+                input_text = ans['input_text'].strip()
+                span_text = ans['span_text']
+                begin = span_text.find(input_text)
+                if begin != -1:
+                    found = find_answer(offsets,
+                                        ans['span_start'] + begin,
+                                        ans['span_start'] + begin + len(input_text))
+                else:
+                    r_input_text = input_text.replace('\n', '').lower()
+                    if r_input_text == 'yes' or r_input_text == 'no':
+                        found = find_answer(offsets,
+                                            ans['span_start'],
+                                            ans['span_start'] + len(span_text))
+                    elif r_input_text == 'unknown':
+                        found = (0, 0)
+                    else:
+                        found = find_answer(offsets,
+                                            ans['span_start'],
+                                            ans['span_start'] + len(span_text))
+
                 if found:
                     ans_tokens.append(found)
         yield {

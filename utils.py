@@ -6,7 +6,6 @@
 # LICENSE file in the root directory of this source tree.
 """Reader utilities."""
 
-
 try:
     import ujson as json
 except ImportError:
@@ -14,6 +13,7 @@ except ImportError:
 import time
 import logging
 import string
+
 try:
     import regex as re
 except ImportError:
@@ -61,10 +61,13 @@ def load_text(filename):
         examples = json.load(f)['data']
 
     texts = {}
-    for article in examples:
-        for paragraph in article['paragraphs']:
-            for qa in paragraph['qas']:
-                texts[qa['id']] = paragraph['context']
+    for paragraph in examples:
+        # for paragraph in article['paragraphs']:
+        #     for qa in paragraph['qas']:
+        #         texts[qa['id']] = paragraph['context']
+        questions = paragraph['questions']
+        for question in questions:
+            texts[paragraph['id'] + str(question['turn_id'])] = paragraph['story']
     return texts
 
 
@@ -75,10 +78,28 @@ def load_answers(filename):
         examples = json.load(f)['data']
 
     ans = {}
-    for article in examples:
-        for paragraph in article['paragraphs']:
-            for qa in paragraph['qas']:
-                ans[qa['id']] = list(map(lambda x: x['text'], qa['answers']))
+    for paragraph in examples:
+        # for paragraph in article['paragraphs']:
+        #     for qa in paragraph['qas']:
+        #         ans[qa['id']] = list(map(lambda x: x['text'], qa['answers']))
+        be_answers = [[answer] for answer in paragraph['answers']]
+        if "additional_answers" in paragraph:
+            for key in paragraph["additional_answers"]:
+                for turn, answer in enumerate(paragraph["additional_answers"][key]):
+                    be_answers[turn].append(answer)
+        answers_list = list()
+        for answer_list in be_answers:
+            answer_texts = list()
+            for answer in answer_list:
+                span_text = answer['span_text'].strip().replace("\n", '')
+                input_text = answer['input_text'].strip().replace("\n", '')
+                if input_text.lower() == 'yes' or input_text.lower() == 'no':
+                    answer_texts.append(span_text)
+                else:
+                    answer_texts.append(input_text)
+            answers_list.append(answer_texts)
+        for turn_id, answers in enumerate(answers_list):
+            ans[paragraph['id'] + str(turn_id + 1)] = answers
     return ans
 
 
@@ -99,6 +120,7 @@ def index_embedding_words(embedding_file):
 
 def load_words(args, examples):
     """Iterate and index all the words in examples (documents + questions)."""
+
     def _insert(iterable):
         for w in iterable:
             w = Dictionary.normalize(w)
@@ -129,6 +151,7 @@ def build_word_dict(args, examples):
         word_dict.add(w)
     return word_dict
 
+
 def index_embedding_chars(char_embedding_file):
     """Put all the chars in char_embedding_file into a set."""
     chars = set()
@@ -138,11 +161,13 @@ def index_embedding_chars(char_embedding_file):
             chars.add(c)
     return chars
 
+
 def load_chars(args, examples):
     """Iterate and index all the chars in examples (documents + questions)."""
+
     def _insert(iterable):
         for cs in iterable:
-            for c in cs: 
+            for c in cs:
                 c = Dictionary.normalize(c)
                 if valid_chars and c not in valid_chars:
                     continue
@@ -161,6 +186,7 @@ def load_chars(args, examples):
         _insert(ex['document_char'])
     return chars
 
+
 def build_char_dict(args, examples):
     """Return a char dictionary from question and document words in
     provided examples.
@@ -169,6 +195,7 @@ def build_char_dict(args, examples):
     for c in load_chars(args, examples):
         char_dict.add(c)
     return char_dict
+
 
 def top_question_words(args, examples, word_dict):
     """Count and return the most common question words in provided examples."""
@@ -183,6 +210,7 @@ def top_question_words(args, examples, word_dict):
 
 def build_feature_dict(args, examples):
     """Index features (one hot) from fields in examples and options."""
+
     def _insert(feature):
         if feature not in feature_dict:
             feature_dict[feature] = len(feature_dict)
@@ -226,6 +254,7 @@ def build_feature_dict(args, examples):
 
 def normalize_answer(s):
     """Lower text and remove punctuation, articles and extra whitespace."""
+
     def remove_articles(text):
         return re.sub(r'\b(a|an|the)\b', ' ', text)
 

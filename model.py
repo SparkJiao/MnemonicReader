@@ -284,9 +284,18 @@ class DocReader(object):
         
         # Transfer to GPU
         if self.use_cuda:
-            inputs = [e if e is None else Variable(e.cuda(async=True)) for e in ex[:-3]]
-            target_s = Variable(ex[-3].cuda(async=True))
-            target_e = Variable(ex[-2].cuda(async=True))
+            # inputs = [e if e is None else Variable(e.cuda(async=True)) for e in ex[:-3]]
+            inputs = list()
+            for e in ex[:-3]:
+                if e is None:
+                    inputs.append(e)
+                else:
+                    inputs.append(e.cuda())
+            # inputs = ex[:-3].cuda()
+            # target_s = Variable(ex[-3].cuda(async=True))
+            target_s = ex[-3].cuda()
+            # target_e = Variable(ex[-2].cuda(async=True))
+            target_e = ex[-2].cuda()
         else:
             inputs = [e if e is None else Variable(e) for e in ex[:-3]]
             target_s = Variable(ex[-3])
@@ -357,9 +366,16 @@ class DocReader(object):
 
         # Transfer to GPU
         if self.use_cuda:
-            inputs = [e if e is None else
-                      Variable(e.cuda(async=True), volatile=True)
-                      for e in ex[:8]]
+            # inputs = [e if e is None else
+            #           Variable(e.cuda(async=True), volatile=True)
+            #           for e in ex[:8]]
+            # inputs = ex[:8].cuda()
+            inputs = list()
+            for e in ex[:8]:
+                if e is None:
+                    inputs.append(e)
+                else:
+                    inputs.append(e.cuda())
         else:
             inputs = [e if e is None else Variable(e, volatile=True)
                       for e in ex[:8]]

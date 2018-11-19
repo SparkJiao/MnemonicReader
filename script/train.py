@@ -7,10 +7,12 @@
 """Main reader training script."""
 
 import sys
+
 sys.path.append('.')
 import argparse
 import torch
 import numpy as np
+
 try:
     import ujson as json
 except ImportError:
@@ -19,12 +21,10 @@ import os
 import subprocess
 import logging
 
-
 import utils, vector, config, data
 from model import DocReader
 
 logger = logging.getLogger()
-
 
 # ------------------------------------------------------------------------------
 # Training arguments.
@@ -35,6 +35,7 @@ logger = logging.getLogger()
 DATA_DIR = os.path.join('data', 'datasets')
 MODEL_DIR = os.path.join('data', 'models')
 EMBED_DIR = os.path.join('data', 'embeddings')
+
 
 def str2bool(v):
     return v.lower() in ('yes', 'true', 't', '1', 'y')
@@ -74,13 +75,19 @@ def add_train_args(parser):
                        help='Unique model identifier (.mdl, .txt, .checkpoint)')
     files.add_argument('--data-dir', type=str, default=DATA_DIR,
                        help='Directory of training/validation data')
+    # files.add_argument('--train-file', type=str,
+    #                    default='SQuAD-v1.1-train-processed-spacy.txt',
+    #                    help='Preprocessed train file')
+    # files.add_argument('--dev-file', type=str,
+    #                    default='SQuAD-v1.1-dev-processed-spacy.txt',
+    #                    help='Preprocessed dev file')
     files.add_argument('--train-file', type=str,
-                       default='SQuAD-v1.1-train-processed-spacy.txt',
+                       default='coqa-train-v1.0-processed-spacy.txt',
                        help='Preprocessed train file')
     files.add_argument('--dev-file', type=str,
-                       default='SQuAD-v1.1-dev-processed-spacy.txt',
+                       default='coqa-dev-v1.0-processed-spacy.txt',
                        help='Preprocessed dev file')
-    files.add_argument('--dev-json', type=str, default='SQuAD-v1.1-dev.json',
+    files.add_argument('--dev-json', type=str, default='coqa-dev-v1.0.json',
                        help=('Unprocessed dev file to run validation '
                              'while training on'))
     files.add_argument('--embed-dir', type=str, default=EMBED_DIR,
@@ -90,6 +97,7 @@ def add_train_args(parser):
                        help='Space-separated pretrained embeddings file')
     files.add_argument('--char-embedding-file', type=str,
                        default='glove.840B.300d-char.txt',
+                       # default='glove.840B.300d.txt',
                        help='Space-separated pretrained embeddings file')
 
     # Saving + loading
@@ -204,7 +212,7 @@ def init_from_scratch(args, train_exs, dev_exs):
     logger.info('-' * 100)
     logger.info('Build word dictionary')
     word_dict = utils.build_word_dict(args, train_exs + dev_exs)
-    logger.info('Num words = %d' % len(word_dict))    
+    logger.info('Num words = %d' % len(word_dict))
 
     # Build a char dictionary from the data questions + documents (train/dev splits)
     logger.info('-' * 100)
@@ -317,8 +325,22 @@ def validate_official(args, data_loader, model, global_stats,
         pred_s, pred_e, _ = model.predict(ex)
 
         for i in range(batch_size):
+            """ debug """
+            # logger.info('debug here: len(offsets) = %d' % (len(offsets)))
+            # if ex_id[i] in offsets:
+            #     logger.info('ex_id[i] error!')
+            # else:
+            #     logger.info('debug here: len(offset[ex_id[i]]) = %d' % (len(offsets[ex_id[i]])))
+            #     if len(offsets[ex_id[i]]) <= pred_s[i][0]:
+            #         logger.info('pred_s[i][0] error!')
+            #     if len(offsets[ex_id[i]]) <= pred_e[i][0]:
+            #         logger.info('pred_e[i][0] error!')
+            # logger.info('debug here: ex_id[i] = %s, pred_s[i][0] = %d, pred_e[i][0] = %d' % (
+            #     ex_id[i], pred_s[i][0], pred_e[i][0]))
             s_offset = offsets[ex_id[i]][pred_s[i][0]][0]
             e_offset = offsets[ex_id[i]][pred_e[i][0]][1]
+            # """ debug """
+            # logger.info('debug here: ex_id[i] = %s, s_offset = %d, e_offset = %d' % (ex_id[i], s_offset, e_offset))
             prediction = texts[ex_id[i]][s_offset:e_offset]
 
             # Compute metrics
