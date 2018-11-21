@@ -18,12 +18,12 @@ from spacy_tokenizer import SpacyTokenizer
 
 logger = logging.getLogger(__name__)
 
-
 # ------------------------------------------------------------------------------
 # Tokenize + annotate
 # ------------------------------------------------------------------------------
 
 TOK = None
+
 
 def init(options):
     global TOK
@@ -34,6 +34,7 @@ def init(options):
 def tokenize(text):
     global TOK
     return TOK.tokenize(text)
+
 
 def get_annotators_for_model(model):
     annotators = set()
@@ -138,15 +139,21 @@ class Predictor(object):
 
         # Build the batch and run it through the model
         batch_exs = batchify([vectorize(e, self.model) for e in examples])
-        s, e, score = self.model.predict(batch_exs, candidates, top_n)
+        s, e, yesno, score = self.model.predict(batch_exs, candidates, top_n)
 
         # Retrieve the predicted spans
         results = []
         for i in range(len(s)):
             predictions = []
+            if yesno[i] == 0:
+                tag = 'x'
+            elif yesno[i] == 1:
+                tag = 'y'
+            else:
+                tag = 'n'
             for j in range(len(s[i])):
                 span = c_tokens[i].slice(s[i][j], e[i][j] + 1).untokenize()
-                predictions.append((span, score[i][j]))
+                predictions.append((span, tag, score[i][j]))
             results.append(predictions)
         return results
 

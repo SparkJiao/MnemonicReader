@@ -244,6 +244,7 @@ def train(args, data_loader, model, global_stats):
 
     # Run one epoch
     for idx, ex in enumerate(data_loader):
+
         train_loss.update(*model.update(ex))
 
         if idx % args.display_iter == 0:
@@ -275,20 +276,22 @@ def validate_unofficial(args, data_loader, model, global_stats, mode):
     eval_time = utils.Timer()
     start_acc = utils.AverageMeter()
     end_acc = utils.AverageMeter()
+    yesno_acc = utils.AverageMeter()
     exact_match = utils.AverageMeter()
 
     # Make predictions
     examples = 0
     for ex in data_loader:
         batch_size = ex[0].size(0)
-        pred_s, pred_e, _ = model.predict(ex)
-        target_s, target_e = ex[-3:-1]
+        pred_s, pred_e, pred_yesno, _ = model.predict(ex)
+        yesno, target_s, target_e = ex[-4:-1]
 
         # We get metrics for independent start/end and joint start/end
-        accuracies = eval_accuracies(pred_s, target_s, pred_e, target_e)
+        accuracies = eval_accuracies(pred_s, target_s, pred_e, target_e, pred_yesno, yesno)
         start_acc.update(accuracies[0], batch_size)
         end_acc.update(accuracies[1], batch_size)
-        exact_match.update(accuracies[2], batch_size)
+        exact_match.update(accuracies[3], batch_size)
+        yesno_acc.update(accuracies[2], batch_size)
 
         # If getting train accuracies, sample max 10k
         examples += batch_size
@@ -297,8 +300,8 @@ def validate_unofficial(args, data_loader, model, global_stats, mode):
 
     logger.info('%s valid unofficial: Epoch = %d | start = %.2f | ' %
                 (mode, global_stats['epoch'], start_acc.avg) +
-                'end = %.2f | exact = %.2f | examples = %d | ' %
-                (end_acc.avg, exact_match.avg, examples) +
+                'end = %.2f | exact = %.2f | examples = %d | yesno = %.2f |' %
+                (end_acc.avg, exact_match.avg, examples, yesno_acc.avg) +
                 'valid time = %.2f (s)' % eval_time.time())
 
     return {'exact_match': exact_match.avg}
@@ -318,11 +321,14 @@ def validate_official(args, data_loader, model, global_stats,
     f1 = utils.AverageMeter()
     exact_match = utils.AverageMeter()
 
+    yesno = utils.AverageMeter()
+
     # Run through examples
     examples = 0
     for ex in data_loader:
         ex_id, batch_size = ex[-1], ex[0].size(0)
-        pred_s, pred_e, _ = model.predict(ex)
+        yesno_tag = ex[-4]
+        pred_s, pred_e, pred_yesno, _ = model.predict(ex)
 
         for i in range(batch_size):
             """ debug """
@@ -342,6 +348,10 @@ def validate_official(args, data_loader, model, global_stats,
             # """ debug """
             # logger.info('debug here: ex_id[i] = %s, s_offset = %d, e_offset = %d' % (ex_id[i], s_offset, e_offset))
             prediction = texts[ex_id[i]][s_offset:e_offset]
+            if pred_yesno[i] in yesno_tag[i]:
+                yesno.update(1)
+            else:
+                yesno.update(0)
 
             # Compute metrics
             ground_truths = answers[ex_id[i]]
@@ -352,15 +362,15 @@ def validate_official(args, data_loader, model, global_stats,
 
         examples += batch_size
 
-    logger.info('dev valid official: Epoch = %d | EM = %.2f | ' %
-                (global_stats['epoch'], exact_match.avg * 100) +
+    logger.info('dev valid official: Epoch = %d | EM = %.2f | yesno = %.2f |' %
+                (global_stats['epoch'], exact_match.avg * 100, yesno.avg * 100) +
                 'F1 = %.2f | examples = %d | valid time = %.2f (s)' %
                 (f1.avg * 100, examples, eval_time.time()))
 
     return {'exact_match': exact_match.avg * 100, 'f1': f1.avg * 100}
 
 
-def eval_accuracies(pred_s, target_s, pred_e, target_e):
+def eval_accuracies(pred_s, target_s, pred_e, target_e, pred_yesno, yesno_tag):
     """An unofficial evalutation helper.
     Compute exact start/end/complete match accuracies for a batch.
     """
@@ -368,12 +378,14 @@ def eval_accuracies(pred_s, target_s, pred_e, target_e):
     if torch.is_tensor(target_s):
         target_s = [[e] for e in target_s]
         target_e = [[e] for e in target_e]
+        yesno_tag = [[yesno] for yesno in yesno_tag]
 
     # Compute accuracies from targets
     batch_size = len(pred_s)
     start = utils.AverageMeter()
     end = utils.AverageMeter()
     em = utils.AverageMeter()
+    yesno = utils.AverageMeter()
     for i in range(batch_size):
         # Start matches
         if pred_s[i] in target_s[i]:
@@ -387,13 +399,18 @@ def eval_accuracies(pred_s, target_s, pred_e, target_e):
         else:
             end.update(0)
 
+        if pred_yesno[i] in yesno_tag[i]:
+            yesno.update(1)
+        else:
+            yesno.update(0)
+
         # Both start and end match
         if any([1 for _s, _e in zip(target_s[i], target_e[i])
                 if _s == torch.from_numpy(pred_s[i]) and _e == torch.from_numpy(pred_e[i])]):
             em.update(1)
         else:
             em.update(0)
-    return start.avg * 100, end.avg * 100, em.avg * 100
+    return start.avg * 100, end.avg * 100, yesno.avg * 100, em.avg * 100
 
 
 # ------------------------------------------------------------------------------

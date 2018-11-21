@@ -92,22 +92,32 @@ def vectorize(ex, model, single_answer=False):
     if 'answers' not in ex:
         return document, document_char, c_features, question, question_char, q_features, ex['id']
 
+    assert 'yesno' in ex
+    if ex['yesno'] == 'y':
+        yesno = torch.LongTensor(1).fill_(1)
+    elif ex['yesno'] == 'n':
+        yesno = torch.LongTensor(1).fill_(2)
+    else:
+        yesno = torch.LongTensor(1).fill_(0)
+    # if 'yesno' not in ex:
+    #     raise RuntimeError('ERRORRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR!')
+
     # ...or with target(s) (might still be empty if answers is empty)
     if single_answer:
-        assert(len(ex['answers']) > 0)
+        assert (len(ex['answers']) > 0)
         start = torch.LongTensor(1).fill_(ex['answers'][0][0])
         end = torch.LongTensor(1).fill_(ex['answers'][0][1])
     else:
         start = [a[0] for a in ex['answers']]
         end = [a[1] for a in ex['answers']]
-    
-    return document, document_char, c_features, question, question_char, q_features, start, end, ex['id']
+
+    return document, document_char, c_features, question, question_char, q_features, yesno, start, end, ex['id']
 
 
 def batchify(batch):
     """Gather a batch of individual examples into one batch."""
     NUM_INPUTS = 6
-    NUM_TARGETS = 2
+    NUM_TARGETS = 3
     NUM_EXTRA = 1
 
     docs = [ex[0] for ex in batch]
@@ -164,13 +174,21 @@ def batchify(batch):
 
     elif len(batch[0]) == NUM_INPUTS + NUM_EXTRA + NUM_TARGETS:
         # ...Otherwise add targets
-        if torch.is_tensor(batch[0][NUM_INPUTS]):
-            y_s = torch.cat([ex[NUM_INPUTS] for ex in batch])
-            y_e = torch.cat([ex[NUM_INPUTS+1] for ex in batch])
+        if torch.is_tensor(batch[0][NUM_INPUTS + 1]):
+            y_s = torch.cat([ex[NUM_INPUTS + 1] for ex in batch])
+            y_e = torch.cat([ex[NUM_INPUTS + 2] for ex in batch])
+            yesno = torch.cat([ex[NUM_INPUTS] for ex in batch])
         else:
-            y_s = [ex[NUM_INPUTS] for ex in batch]
-            y_e = [ex[NUM_INPUTS+1] for ex in batch]
+            y_s = [ex[NUM_INPUTS + 1] for ex in batch]
+            y_e = [ex[NUM_INPUTS + 2] for ex in batch]
+            yesno = [ex[NUM_INPUTS] for ex in batch]
     else:
         raise RuntimeError('Incorrect number of inputs per example.')
-
-    return x1, x1_c, x1_f, x1_mask, x2, x2_c, x2_f, x2_mask, y_s, y_e, ids
+    # for i, ex in enumerate(batch):
+    #     print(i)
+    #     print(ex[-4])
+    # print('yesno batch length = %d)' % (len(yesno)))
+    # print('target_s batch length = %d' % (len(y_s)))
+    # print('ids batch length = %d' % (len(ids)))
+    # print('batch length = %d' % len(batch))
+    return x1, x1_c, x1_f, x1_mask, x2, x2_c, x2_f, x2_mask, yesno, y_s, y_e, ids

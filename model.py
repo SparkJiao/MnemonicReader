@@ -97,7 +97,6 @@ class DocReader(object):
         # Return added words
         return to_add
 
-
     def expand_char_dictionary(self, chars):
         """Add chars to the DocReader dictionary if they do not exist. The
         underlying embedding matrix is also expanded (with random embeddings).
@@ -120,8 +119,8 @@ class DocReader(object):
 
             old_char_embedding = self.network.char_embedding.weight.data
             self.network.char_embedding = torch.nn.Embedding(self.args.char_size,
-                                                        self.args.char_embedding_dim,
-                                                        padding_idx=0)
+                                                             self.args.char_embedding_dim,
+                                                             padding_idx=0)
             new_char_embedding = self.network.char_embedding.weight.data
             new_char_embedding[:old_char_embedding.size(0)] = old_char_embedding
 
@@ -146,7 +145,7 @@ class DocReader(object):
         with open(embedding_file) as f:
             for line in f:
                 parsed = line.rstrip().split(' ')
-                assert(len(parsed) == embedding.size(1) + 1)
+                assert (len(parsed) == embedding.size(1) + 1)
                 w = self.word_dict.normalize(parsed[0])
                 if w in words:
                     vec = torch.Tensor([float(i) for i in parsed[1:]])
@@ -184,7 +183,7 @@ class DocReader(object):
         with open(char_embedding_file) as f:
             for line in f:
                 parsed = line.rstrip().split(' ')
-                assert(len(parsed) == char_embedding.size(1) + 1)
+                assert (len(parsed) == char_embedding.size(1) + 1)
                 w = self.char_dict.normalize(parsed[0])
                 if w in chars:
                     vec = torch.Tensor([float(i) for i in parsed[1:]])
@@ -281,12 +280,12 @@ class DocReader(object):
 
         # Train mode
         self.network.train()
-        
+
         # Transfer to GPU
         if self.use_cuda:
             # inputs = [e if e is None else Variable(e.cuda(async=True)) for e in ex[:-3]]
             inputs = list()
-            for e in ex[:-3]:
+            for e in ex[:-4]:
                 if e is None:
                     inputs.append(e)
                 else:
@@ -296,16 +295,28 @@ class DocReader(object):
             target_s = ex[-3].cuda()
             # target_e = Variable(ex[-2].cuda(async=True))
             target_e = ex[-2].cuda()
+            yesno = ex[-4].cuda()
         else:
-            inputs = [e if e is None else Variable(e) for e in ex[:-3]]
+            inputs = [e if e is None else Variable(e) for e in ex[:-4]]
             target_s = Variable(ex[-3])
             target_e = Variable(ex[-2])
-        
-        # Run forward
-        score_s, score_e = self.network(*inputs)
+            yesno = Variable(ex[-4])
 
+        # Run forward
+        score_s, score_e, score_yesno = self.network(*inputs)
+
+        batch_size = score_e.size(0)
+        yesno_tag = score_yesno.new_zeros((score_yesno.size(0), score_yesno.size(2)), dtype=torch.float)
+        # print(score_yesno.size())
+        # print(target_e.size())
+        # raise RuntimeError('debug here')
+        for i in range(batch_size):
+            yesno_tag[i] = score_yesno[i][target_e[i]]
+
+        # print(yesno.size())
+        # raise RuntimeError('debug here')
         # Compute loss and accuracies
-        loss = F.nll_loss(score_s, target_s) + F.nll_loss(score_e, target_e)
+        loss = F.nll_loss(score_s, target_s) + F.nll_loss(score_e, target_e) + F.nll_loss(yesno_tag, yesno)
 
         # Clear gradients and run backward
         self.optimizer.zero_grad()
@@ -381,28 +392,29 @@ class DocReader(object):
                       for e in ex[:8]]
 
         # Run forward
-        score_s, score_e = self.network(*inputs)
+        score_s, score_e, score_yesno = self.network(*inputs)
         del inputs
 
         # Decode predictions
         score_s = score_s.data.cpu()
         score_e = score_e.data.cpu()
+        score_yesno = score_yesno.data.cpu()
 
         if candidates:
-            args = (score_s, score_e, candidates, top_n, self.args.max_len)
+            args = (score_s, score_e, score_yesno, candidates, top_n, self.args.max_len)
             if async_pool:
                 return async_pool.apply_async(self.decode_candidates, args)
             else:
                 return self.decode_candidates(*args)
         else:
-            args = (score_s, score_e, top_n, self.args.max_len)
+            args = (score_s, score_e, score_yesno, top_n, self.args.max_len)
             if async_pool:
                 return async_pool.apply_async(self.decode, args)
             else:
                 return self.decode(*args)
 
     @staticmethod
-    def decode(score_s, score_e, top_n=1, max_len=None):
+    def decode(score_s, score_e, score_yesno, top_n=1, max_len=None):
         """Take argmax of constrained score_s * score_e.
 
         Args:
@@ -413,6 +425,7 @@ class DocReader(object):
         """
         pred_s = []
         pred_e = []
+        pred_yesno = []
         pred_score = []
         max_len = max_len or score_s.size(1)
         for i in range(score_s.size(0)):
@@ -435,9 +448,10 @@ class DocReader(object):
             s_idx, e_idx = np.unravel_index(idx_sort, scores.shape)
             pred_s.append(s_idx)
             pred_e.append(e_idx)
+            pred_yesno.append(np.argmax(score_yesno[i][e_idx].numpy()))
             pred_score.append(scores_flat[idx_sort])
-        del score_s, score_e
-        return pred_s, pred_e, pred_score
+        del score_s, score_e, score_yesno
+        return pred_s, pred_e, pred_yesno, pred_score
 
     @staticmethod
     def decode_candidates(score_s, score_e, candidates, top_n=1, max_len=None):

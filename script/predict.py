@@ -7,12 +7,14 @@
 """A script to make and save model predictions on an input dataset."""
 
 import sys
+
 sys.path.append('.')
 import os
 import time
 import torch
 import argparse
 import logging
+
 try:
     import ujson as json
 except ImportError:
@@ -43,7 +45,7 @@ parser.add_argument('--char-embedding-file', type=str, default=None,
 parser.add_argument('--out-dir', type=str, default='data/predict',
                     help=('Directory to write prediction file to '
                           '(<dataset>-<model>.preds)'))
-parser.add_argument('--num-workers', type=int, default=int(cpu_count()/2),
+parser.add_argument('--num-workers', type=int, default=int(cpu_count() / 2),
                     help='Number of CPU processes (for tokenizing, etc)')
 parser.add_argument('--no-cuda', action='store_true',
                     help='Use CPU only')
@@ -84,12 +86,12 @@ examples = []
 qids = []
 with open(args.dataset) as f:
     data = json.load(f)['data']
-    for article in data:
-        for paragraph in article['paragraphs']:
-            context = paragraph['context']
-            for qa in paragraph['qas']:
-                qids.append(qa['id'])
-                examples.append((context, qa['question']))
+    for paragraph in data:
+        context = paragraph['story']
+        questions = paragraph['questions']
+        for qa in questions:
+            qids.append(paragraph['id'] + '-' + str(qa['turn_id']))
+            examples.append((context, qa['input_text']))
 
 results = {}
 for i in tqdm(range(0, len(examples), args.batch_size)):
@@ -100,6 +102,7 @@ for i in tqdm(range(0, len(examples), args.batch_size)):
         # Official eval expects just a qid --> span
         if args.official:
             results[qids[i + j]] = predictions[j][0][0]
+            results[qids[i + j] + '-yesno'] = predictions[j][0][1]
 
         # Otherwise we store top N and scores for debugging.
         else:

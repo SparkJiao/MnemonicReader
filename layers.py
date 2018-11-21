@@ -178,7 +178,7 @@ class FeedForwardNetwork(nn.Module):
         x_proj = F.dropout(F.relu(self.linear1(x)), p=self.dropout_rate, training=self.training)
         x_proj = self.linear2(x_proj)
         return x_proj
-            
+
 
 class PointerNetwork(nn.Module):
     def __init__(self, x_size, y_size, hidden_size, dropout_rate=0, cell_type=nn.GRUCell, normalize=True):
@@ -186,18 +186,18 @@ class PointerNetwork(nn.Module):
         self.normalize = normalize
         self.hidden_size = hidden_size
         self.dropout_rate = dropout_rate
-        self.linear = nn.Linear(x_size+y_size, hidden_size, bias=False)
+        self.linear = nn.Linear(x_size + y_size, hidden_size, bias=False)
         self.weights = nn.Linear(hidden_size, 1, bias=False)
         self.self_attn = NonLinearSeqAttn(y_size, hidden_size)
         self.cell = cell_type(x_size, y_size)
 
     def init_hiddens(self, y, y_mask):
         attn = self.self_attn(y, y_mask)
-        res = attn.unsqueeze(1).bmm(y).squeeze(1) # [B, I]
+        res = attn.unsqueeze(1).bmm(y).squeeze(1)  # [B, I]
         return res
-    
+
     def pointer(self, x, state, x_mask):
-        x_ = torch.cat([x, state.unsqueeze(1).repeat(1,x.size(1),1)], 2)
+        x_ = torch.cat([x, state.unsqueeze(1).repeat(1, x.size(1), 1)], 2)
         s0 = F.tanh(self.linear(x_))
         s = self.weights(s0).view(x.size(0), x.size(1))
         s.data.masked_fill_(x_mask.data, -float('inf'))
@@ -214,7 +214,6 @@ class PointerNetwork(nn.Module):
             scores = a.exp()
         return res, scores
 
-
     def forward(self, x, y, x_mask, y_mask):
         hiddens = self.init_hiddens(y, y_mask)
         c, start_scores = self.pointer(x, hiddens, x_mask)
@@ -222,6 +221,7 @@ class PointerNetwork(nn.Module):
         hiddens = self.cell(c_, hiddens)
         c, end_scores = self.pointer(x, hiddens, x_mask)
         return start_scores, end_scores
+
 
 class MemoryAnsPointer(nn.Module):
     def __init__(self, x_size, y_size, hidden_size, hop=1, dropout_rate=0, normalize=True):
@@ -235,45 +235,50 @@ class MemoryAnsPointer(nn.Module):
         self.FFNs_end = nn.ModuleList()
         self.SFUs_end = nn.ModuleList()
         for i in range(self.hop):
-            self.FFNs_start.append(FeedForwardNetwork(x_size+y_size+2*hidden_size, hidden_size, 1, dropout_rate))
-            self.SFUs_start.append(SFU(y_size, 2*hidden_size))
-            self.FFNs_end.append(FeedForwardNetwork(x_size+y_size+2*hidden_size, hidden_size, 1, dropout_rate))
-            self.SFUs_end.append(SFU(y_size, 2*hidden_size))
-    
+            self.FFNs_start.append(FeedForwardNetwork(x_size + y_size + 2 * hidden_size, hidden_size, 1, dropout_rate))
+            self.SFUs_start.append(SFU(y_size, 2 * hidden_size))
+            self.FFNs_end.append(FeedForwardNetwork(x_size + y_size + 2 * hidden_size, hidden_size, 1, dropout_rate))
+            self.SFUs_end.append(SFU(y_size, 2 * hidden_size))
+        self.yesno_predictor = FeedForwardNetwork(x_size + y_size + 2 * hidden_size, hidden_size, 3, dropout_rate)
+
     def forward(self, x, y, x_mask, y_mask):
-        z_s = y[:,-1,:].unsqueeze(1) # [B, 1, I]
+        z_s = y[:, -1, :].unsqueeze(1)  # [B, 1, I]
         z_e = None
         s = None
         e = None
         p_s = None
         p_e = None
-        
+
         for i in range(self.hop):
-            z_s_ = z_s.repeat(1,x.size(1),1) # [B, S, I]
-            s = self.FFNs_start[i](torch.cat([x, z_s_, x*z_s_], 2)).squeeze(2)
+            z_s_ = z_s.repeat(1, x.size(1), 1)  # [B, S, I]
+            s = self.FFNs_start[i](torch.cat([x, z_s_, x * z_s_], 2)).squeeze(2)
             s.data.masked_fill_(x_mask.data, -float('inf'))
-            p_s = F.softmax(s, dim=1) # [B, S]
-            u_s = p_s.unsqueeze(1).bmm(x) # [B, 1, I]
-            z_e = self.SFUs_start[i](z_s, u_s) # [B, 1, I]
-            z_e_ = z_e.repeat(1,x.size(1),1) # [B, S, I]
-            e = self.FFNs_end[i](torch.cat([x, z_e_, x*z_e_], 2)).squeeze(2)
+            p_s = F.softmax(s, dim=1)  # [B, S]
+            u_s = p_s.unsqueeze(1).bmm(x)  # [B, 1, I]
+            z_e = self.SFUs_start[i](z_s, u_s)  # [B, 1, I]
+            z_e_ = z_e.repeat(1, x.size(1), 1)  # [B, S, I]
+            e = self.FFNs_end[i](torch.cat([x, z_e_, x * z_e_], 2)).squeeze(2)
             e.data.masked_fill_(x_mask.data, -float('inf'))
-            p_e = F.softmax(e, dim=1) # [B, S]
-            u_e = p_e.unsqueeze(1).bmm(x) # [B, 1, I]
+            p_e = F.softmax(e, dim=1)  # [B, S]
+            u_e = p_e.unsqueeze(1).bmm(x)  # [B, 1, I]
             z_s = self.SFUs_end[i](z_e, u_e)
+        yesno = self.yesno_predictor(torch.cat([x, z_e_, x * z_e_], 2))
         if self.normalize:
             if self.training:
                 # In training we output log-softmax for NLL
-                p_s = F.log_softmax(s, dim=1) # [B, S]
-                p_e = F.log_softmax(e, dim=1) # [B, S]
+                p_s = F.log_softmax(s, dim=1)  # [B, S]
+                p_e = F.log_softmax(e, dim=1)  # [B, S]
+                p_yesno = F.log_softmax(yesno, dim=2)
             else:
                 # ...Otherwise 0-1 probabilities
-                p_s = F.softmax(s, dim=1) # [B, S]
-                p_e = F.softmax(e, dim=1) # [B, S]
+                p_s = F.softmax(s, dim=1)  # [B, S]
+                p_e = F.softmax(e, dim=1)  # [B, S]
+                p_yesno = F.softmax(yesno, dim=2)
         else:
             p_s = s.exp()
             p_e = e.exp()
-        return p_s, p_e
+            p_yesno = yesno.exp()
+        return p_s, p_e, p_yesno
 
 
 # ------------------------------------------------------------------------------
@@ -326,6 +331,7 @@ class SeqAttnMatch(nn.Module):
         # Take weighted average
         matched_seq = alpha.bmm(y)
         return matched_seq
+
 
 class SelfAttnMatch(nn.Module):
     """Given sequences X and Y, match sequence Y to each element in X.
@@ -442,6 +448,7 @@ class LinearSeqAttn(nn.Module):
         alpha = F.softmax(scores)
         return alpha
 
+
 class NonLinearSeqAttn(nn.Module):
     """Self attention over a sequence:
 
@@ -475,6 +482,7 @@ class Gate(nn.Module):
     g = sigmoid(Wx)
     x = g * x
     """
+
     def __init__(self, input_size):
         super(Gate, self).__init__()
         self.linear = nn.Linear(input_size, input_size, bias=False)
@@ -497,6 +505,7 @@ class SFU(nn.Module):
     The ouput vector is expected to not only retrieve correlative information from fusion vectors,
     but also retain partly unchange as the input vector
     """
+
     def __init__(self, input_size, fusion_size):
         super(SFU, self).__init__()
         self.linear_r = nn.Linear(input_size + fusion_size, input_size)
@@ -506,9 +515,9 @@ class SFU(nn.Module):
         r_f = torch.cat([x, fusions], 2)
         r = F.tanh(self.linear_r(r_f))
         g = F.sigmoid(self.linear_g(r_f))
-        o = g * r + (1-g) * x
+        o = g * r + (1 - g) * x
         return o
-        
+
 
 # ------------------------------------------------------------------------------
 # Functional

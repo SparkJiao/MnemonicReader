@@ -121,6 +121,7 @@ def process_dataset(data, tokenizer, workers=None):
         cner = c_tokens[data['qid2cid'][idx]]['ner']
 
         ans_tokens = []
+        yesno = 'x'
         if len(data['answers']) > 0:
             for ans in data['answers'][idx]:
                 input_text = ans['input_text'].strip()
@@ -133,6 +134,10 @@ def process_dataset(data, tokenizer, workers=None):
                 else:
                     r_input_text = input_text.replace('\n', '').lower()
                     if r_input_text == 'yes' or r_input_text == 'no':
+                        if r_input_text == 'yes':
+                            yesno = 'y'
+                        else:
+                            yesno = 'n'
                         found = find_answer(offsets,
                                             ans['span_start'],
                                             ans['span_start'] + len(span_text))
@@ -153,6 +158,7 @@ def process_dataset(data, tokenizer, workers=None):
             'document_char': document_char,
             'offsets': offsets,
             'answers': ans_tokens,
+            'yesno': yesno,
             'qlemma': qlemma,
             'qpos': qpos,
             'qner': qner,
