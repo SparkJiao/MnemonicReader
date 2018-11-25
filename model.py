@@ -302,6 +302,9 @@ class DocReader(object):
             target_e = Variable(ex[-2])
             yesno = Variable(ex[-4])
 
+        # print(target_e.size())
+        # raise RuntimeError("debug here")
+
         # Run forward
         score_s, score_e, score_yesno = self.network(*inputs)
 
