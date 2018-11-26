@@ -249,6 +249,9 @@ class MemoryAnsPointer(nn.Module):
         p_s = None
         p_e = None
 
+        yesno_mask = x.new_ones((x.size(0), x.size(1), 3), dtype=torch.float, device=x.device)
+        yesno_mask[:, :, 2] = torch.tensor([0], dtype=torch.float, device=x.device)
+
         for i in range(self.hop):
             z_s_ = z_s.repeat(1, x.size(1), 1)  # [B, S, I]
             s = self.FFNs_start[i](torch.cat([x, z_s_, x * z_s_], 2)).squeeze(2)
@@ -263,22 +266,30 @@ class MemoryAnsPointer(nn.Module):
             u_e = p_e.unsqueeze(1).bmm(x)  # [B, 1, I]
             z_s = self.SFUs_end[i](z_e, u_e)
         yesno = self.yesno_predictor(torch.cat([x, z_e_, x * z_e_], 2))
+
+        from allennlp.nn import util
         if self.normalize:
             if self.training:
                 # In training we output log-softmax for NLL
                 p_s = F.log_softmax(s, dim=1)  # [B, S]
                 p_e = F.log_softmax(e, dim=1)  # [B, S]
-                p_yesno = F.log_softmax(yesno, dim=2)
+                # p_yesno = F.log_softmax(yesno, dim=2)
+                p_yesno = util.masked_log_softmax(yesno, yesno_mask, dim=2)
+                p_s_soft = F.softmax(s, dim=1)
+                p_e_soft = F.softmax(e, dim=1)
             else:
                 # ...Otherwise 0-1 probabilities
                 p_s = F.softmax(s, dim=1)  # [B, S]
                 p_e = F.softmax(e, dim=1)  # [B, S]
-                p_yesno = F.softmax(yesno, dim=2)
+                # p_yesno = F.softmax(yesno, dim=2)
+                p_yesno = util.masked_softmax(yesno, yesno_mask, dim=2)
+                p_s_soft = p_s
+                p_e_soft = p_e
         else:
             p_s = s.exp()
             p_e = e.exp()
             p_yesno = yesno.exp()
-        return p_s, p_e, p_yesno
+        return p_s, p_e, p_yesno, p_s_soft, p_e_soft
 
 
 # ------------------------------------------------------------------------------

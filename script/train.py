@@ -348,10 +348,11 @@ def validate_official(args, data_loader, model, global_stats,
             # """ debug """
             # logger.info('debug here: ex_id[i] = %s, s_offset = %d, e_offset = %d' % (ex_id[i], s_offset, e_offset))
             prediction = texts[ex_id[i]][s_offset:e_offset]
-            if pred_yesno[i] in yesno_tag[i]:
-                yesno.update(1)
-            else:
-                yesno.update(0)
+            if yesno_tag[i][0] != 2:
+                if pred_yesno[i] in yesno_tag[i]:
+                    yesno.update(1)
+                else:
+                    yesno.update(0)
 
             # Compute metrics
             ground_truths = answers[ex_id[i]]
@@ -399,10 +400,11 @@ def eval_accuracies(pred_s, target_s, pred_e, target_e, pred_yesno, yesno_tag):
         else:
             end.update(0)
 
-        if pred_yesno[i] in yesno_tag[i]:
-            yesno.update(1)
-        else:
-            yesno.update(0)
+        if yesno_tag[i][0] != 2:
+            if pred_yesno[i] in yesno_tag[i]:
+                yesno.update(1)
+            else:
+                yesno.update(0)
 
         # Both start and end match
         if any([1 for _s, _e in zip(target_s[i], target_e[i])

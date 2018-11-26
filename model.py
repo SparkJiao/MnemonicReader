@@ -20,6 +20,8 @@ from rnn_reader import RnnDocReader
 from m_reader import MnemonicReader
 from data import Dictionary
 
+import loss_fun
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +45,7 @@ class DocReader(object):
         self.feature_dict = feature_dict
         self.args.num_features = len(feature_dict)
         self.updates = 0
-        self.use_cuda = False
+        self.use_cuda = True
         self.parallel = False
 
         # Building network. If normalize if false, scores are not normalized
@@ -285,7 +287,7 @@ class DocReader(object):
         if self.use_cuda:
             # inputs = [e if e is None else Variable(e.cuda(async=True)) for e in ex[:-3]]
             inputs = list()
-            for e in ex[:-4]:
+            for e in ex[:8]:
                 if e is None:
                     inputs.append(e)
                 else:
@@ -296,17 +298,21 @@ class DocReader(object):
             # target_e = Variable(ex[-2].cuda(async=True))
             target_e = ex[-2].cuda()
             yesno = ex[-4].cuda()
+            span_s = ex[-6].cuda()
+            span_e = ex[-5].cuda()
         else:
             inputs = [e if e is None else Variable(e) for e in ex[:-4]]
             target_s = Variable(ex[-3])
             target_e = Variable(ex[-2])
             yesno = Variable(ex[-4])
+            span_s = Variable(ex[-6])
+            span_e = Variable(ex[-5])
 
         # print(target_e.size())
         # raise RuntimeError("debug here")
 
         # Run forward
-        score_s, score_e, score_yesno = self.network(*inputs)
+        score_s, score_e, score_yesno, soft_s, soft_e = self.network(*inputs)
 
         batch_size = score_e.size(0)
         yesno_tag = score_yesno.new_zeros((score_yesno.size(0), score_yesno.size(2)), dtype=torch.float)
@@ -315,11 +321,19 @@ class DocReader(object):
         # raise RuntimeError('debug here')
         for i in range(batch_size):
             yesno_tag[i] = score_yesno[i][target_e[i]]
+            if yesno[i].item() == 2:
+                yesno_tag[i] = torch.FloatTensor([0., 0., 1], device=score_yesno.device)
 
-        # print(yesno.size())
-        # raise RuntimeError('debug here')
         # Compute loss and accuracies
         loss = F.nll_loss(score_s, target_s) + F.nll_loss(score_e, target_e) + F.nll_loss(yesno_tag, yesno)
+
+        # print(loss)
+        # raise RuntimeError("size of loss")
+        # Compute evidence loss sum and answer loss
+        f1_loss = torch.sum(loss_fun.f1_loss(soft_s, soft_e, span_s, span_e))
+        # print("f1_loss:")
+        # print(f1_loss)
+        loss -= f1_loss
 
         # Clear gradients and run backward
         self.optimizer.zero_grad()
@@ -395,7 +409,7 @@ class DocReader(object):
                       for e in ex[:8]]
 
         # Run forward
-        score_s, score_e, score_yesno = self.network(*inputs)
+        score_s, score_e, score_yesno, soft_s, soft_n = self.network(*inputs)
         del inputs
 
         # Decode predictions

@@ -84,12 +84,40 @@ def load_dataset(path):
 
 def find_answer(offsets, begin_offset, end_offset):
     """Match token offsets with the char begin/end offsets of the answer."""
+    # some span_text in coqa have leading blanks which should be removed before this pre-process
+    # otherwise it won't find the start
     start = [i for i, tok in enumerate(offsets) if tok[0] == begin_offset]
     end = [i for i, tok in enumerate(offsets) if tok[1] == end_offset]
     assert (len(start) <= 1)
     assert (len(end) <= 1)
     if len(start) == 1 and len(end) == 1:
         return start[0], end[0]
+    else:
+        if len(start) == 0:
+            start = []
+            for i, tok in enumerate(offsets):
+                if tok[0] <= begin_offset <= tok[1]:
+                    start.append(i)
+                    break
+        if len(end) == 0:
+            end = []
+            for i, tok in enumerate(offsets):
+                if tok[0] <= end_offset <= tok[1]:
+                    end.append(i)
+                    break
+        if len(start) == 1 and len(end) == 1:
+            return start[0], end[0]
+        raise RuntimeError("debug here:\n begin_offset: %d\n end_offset: %d\n len(start) = %d\nlen(end) = %d\n" % (
+            begin_offset, end_offset, len(start), len(end)))
+
+
+def num_leading_blanks(span_text):
+    num = 0
+    for i in range(len(span_text)):
+        if span_text[i] == ' ':
+            num += 1
+        else:
+            return num
 
 
 def process_dataset(data, tokenizer, workers=None):
@@ -121,35 +149,57 @@ def process_dataset(data, tokenizer, workers=None):
         cner = c_tokens[data['qid2cid'][idx]]['ner']
 
         ans_tokens = []
+        span_tokens = []
         yesno = 'x'
         if len(data['answers']) > 0:
             for ans in data['answers'][idx]:
                 input_text = ans['input_text'].strip()
                 span_text = ans['span_text']
                 begin = span_text.find(input_text)
-                if begin != -1:
-                    found = find_answer(offsets,
-                                        ans['span_start'] + begin,
-                                        ans['span_start'] + begin + len(input_text))
-                else:
-                    r_input_text = input_text.replace('\n', '').lower()
-                    if r_input_text == 'yes' or r_input_text == 'no':
-                        if r_input_text == 'yes':
-                            yesno = 'y'
-                        else:
-                            yesno = 'n'
-                        found = find_answer(offsets,
-                                            ans['span_start'],
-                                            ans['span_start'] + len(span_text))
-                    elif r_input_text == 'unknown':
-                        found = (0, 0)
+                # find the answer
+                r_input_text = input_text.replace('\n', '').lower()
+                if r_input_text == 'yes' or r_input_text == 'no':
+                    if r_input_text == 'yes':
+                        yesno = 'y'
                     else:
+                        yesno = 'n'
+                    leading_blanks = num_leading_blanks(span_text)
+                    start = ans['span_start'] + leading_blanks
+                    end = start + len(span_text.strip().replace('\n', ''))
+                    found = find_answer(offsets, start, end)
+                elif r_input_text == 'unknown':
+                    found = (0, 0)
+                else:
+                    if begin != -1:
                         found = find_answer(offsets,
-                                            ans['span_start'],
-                                            ans['span_start'] + len(span_text))
-
+                                            ans['span_start'] + begin,
+                                            ans['span_start'] + begin + len(input_text))
+                    else:
+                        leading_blanks = num_leading_blanks(span_text)
+                        start = ans['span_start'] + leading_blanks
+                        end = start + len(span_text.strip().replace('\n', ''))
+                        found = find_answer(offsets, start, end)
                 if found:
                     ans_tokens.append(found)
+                else:
+                    # ans_tokens.append((0, 0))
+                    raise RuntimeError(
+                        "can't find the answer tokens, span_text = \n%s\n span_start = %d\n input_text = %s" % (
+                            span_text, ans['span_start'], input_text))
+                # find the evidence
+                if span_text.strip().replace('\n', '').lower() == 'unknown':
+                    span_tokens.append((0, 0))
+                else:
+                    leading_blanks = num_leading_blanks(span_text)
+                    start = ans['span_start'] + leading_blanks
+                    end = start + len(span_text.strip().replace('\n', ''))
+                    span = find_answer(offsets, start, end)
+                    if span:
+                        span_tokens.append(span)
+                    else:
+                        raise RuntimeError(
+                            "can't find the span tokens, span_text = \n%s\n span_start = %d\n input_text = %s" % (
+                                span_text, start, input_text))
         yield {
             'id': data['qids'][idx],
             'question': question,
@@ -158,6 +208,7 @@ def process_dataset(data, tokenizer, workers=None):
             'document_char': document_char,
             'offsets': offsets,
             'answers': ans_tokens,
+            'span': span_tokens,
             'yesno': yesno,
             'qlemma': qlemma,
             'qpos': qpos,

@@ -160,6 +160,6 @@ class MnemonicReader(nn.Module):
             c_check = self.aggregate_rnns[i].forward(c_hat, x1_mask)
 
         # Predict
-        start_scores, end_scores, yesno_scores = self.mem_ans_ptr.forward(c_check, q, x1_mask, x2_mask)
+        start_scores, end_scores, yesno_scores, start_soft, end_soft = self.mem_ans_ptr.forward(c_check, q, x1_mask, x2_mask)
         
-        return start_scores, end_scores, yesno_scores
+        return start_scores, end_scores, yesno_scores, start_soft, end_soft
