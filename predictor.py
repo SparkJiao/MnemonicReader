@@ -145,9 +145,9 @@ class Predictor(object):
         results = []
         for i in range(len(s)):
             predictions = []
-            if yesno[i] == 0:
+            if yesno[i] == 2:
                 tag = 'x'
-            elif yesno[i] == 1:
+            elif yesno[i] == 0:
                 tag = 'y'
             else:
                 tag = 'n'

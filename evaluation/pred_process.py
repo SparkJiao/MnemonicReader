@@ -18,10 +18,10 @@ def main(input_file, output_file):
                 assert keys[2] == 'yesno'
                 assert keys[0] == output[-1]['id']
                 assert int(keys[1]) == output[-1]['turn_id']
-                if value == 'y':
-                    output[-1]['answer'] = 'yes'
-                elif value == 'n':
-                    output[-1]['answer'] = 'no'
+                # if value == 'y':
+                #     output[-1]['answer'] = 'yes'
+                # elif value == 'n':
+                #     output[-1]['answer'] = 'no'
                 output[-1]['yesno'] = value
             else:
                 raise RuntimeError("Bad key: %s", key)
